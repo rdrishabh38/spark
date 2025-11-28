@@ -1,0 +1,17 @@
+FROM spark:3.5.3-scala2.12-java17-python3-ubuntu
+
+USER root
+
+# 1. Install tools
+RUN pip install --no-cache-dir delta-spark==3.0.0 jupyterlab pandas
+
+# 2. Fix Permissions: Create a home directory for the Spark user (UID 185)
+# Jupyter crashes if it cannot write to ~/.local/share/jupyter
+RUN mkdir -p /home/spark && \
+    chown -R 185:185 /home/spark
+
+# 3. Set the HOME environment variable
+ENV HOME=/home/spark
+
+# Switch back to the default restricted user
+USER 185
