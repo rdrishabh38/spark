@@ -11,25 +11,22 @@ up:
     @echo "📂 Preparing workspace..."
     mkdir -p work
     chmod 777 work
-    @echo "🚀 Building Client and Spinning up Spark Cluster..."
+    @echo "🚀 Spinning up Spark + MinIO Cluster..."
     docker compose up -d --build
-    @echo "✅ Cluster Ready!"
-    @echo "   - Jupyter (Edge Node): http://localhost:8888"
-    @echo "   - Master UI:           http://localhost:8080"
-    @echo "   - Driver UI:           http://localhost:4040 (When job is running)"
+    @echo "✅ Infrastructure Ready!"
+    @echo "   - Jupyter:      http://localhost:8888"
+    @echo "   - MinIO Console: http://localhost:9001 (User: admin / Pass: password)"
+    @echo "   - Spark Master:  http://localhost:8080"
 
-# Stop the cluster
 down:
     @echo "🛑 Stopping cluster..."
     docker compose down
 
-# Stream logs from the client (Use Ctrl+C to exit)
 logs:
     docker compose logs -f spark-client
 
-# Nuke everything (Containers + Volumes + Images) - CAREFUL!
 nuke:
-    @echo "☢️  Nuking the environment..."
+    @echo "☢️  Nuking environment..."
     docker compose down --volumes --rmi local
     @echo "✨ Clean slate."
 
@@ -37,26 +34,54 @@ nuke:
 # Development & Interaction
 # ------------------------------------------------------------------------------
 
-# Submit a Python script to the cluster
-test:
-    @echo "📦 Submitting job to cluster..."
+# Run the comprehensive infrastructure test suite
+infra-test:
+    @echo "🧪 Running Combined Infrastructure Test..."
     docker compose exec spark-client spark-submit \
         --master spark://spark-master:7077 \
         --deploy-mode client \
-        --packages io.delta:delta-spark_2.12:3.0.0 \
+        --packages io.delta:delta-spark_2.12:3.0.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 \
         --conf "spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension" \
         --conf "spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog" \
-        /opt/spark/work-dir/app.py
+        --conf "spark.hadoop.fs.s3a.endpoint=http://minio:9000" \
+        --conf "spark.hadoop.fs.s3a.access.key=admin" \
+        --conf "spark.hadoop.fs.s3a.secret.key=password" \
+        --conf "spark.hadoop.fs.s3a.path.style.access=true" \
+        --conf "spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem" \
+        /opt/spark/work-dir/infra_test.py
 
-# Open a Bash shell inside the Client container
 shell:
     docker compose exec spark-client /bin/bash
 
-# Open the Spark SQL REPL (Pre-configured for Delta Lake)
+# SQL with S3 support
 sql:
-    @echo "⚡ Starting Spark SQL CLI with Delta support..."
+    @echo "⚡ Starting Spark SQL..."
     docker compose exec spark-client /opt/spark/bin/spark-sql \
         --master spark://spark-master:7077 \
-        --packages io.delta:delta-spark_2.12:3.0.0 \
-        --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension \
-        --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog
+        --packages io.delta:delta-spark_2.12:3.0.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 \
+        --conf "spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension" \
+        --conf "spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog" \
+        --conf "spark.hadoop.fs.s3a.endpoint=http://minio:9000" \
+        --conf "spark.hadoop.fs.s3a.access.key=admin" \
+        --conf "spark.hadoop.fs.s3a.secret.key=password" \
+        --conf "spark.hadoop.fs.s3a.path.style.access=true"
+
+
+# Show current infrastructure state
+status:
+    @echo "----------------------------------------------------------------"
+    @echo "🐳 Container Status"
+    @echo "----------------------------------------------------------------"
+    @docker compose ps
+    @echo ""
+    @echo "----------------------------------------------------------------"
+    @echo "🔗 Service Endpoints"
+    @echo "----------------------------------------------------------------"
+    @echo "📓 Jupyter Lab:      http://localhost:8888"
+    @echo "✨ Spark Master UI:  http://localhost:8080"
+    @echo "🧠 Spark Driver UI:  http://localhost:4040 (Active jobs only)"
+    @echo "🪣 MinIO Console:    http://localhost:9001"
+    @echo "   - User:          admin"
+    @echo "   - Password:      password"
+    @echo "   - API Endpoint:  http://localhost:9000 (Internal: http://minio:9000)"
+    @echo "----------------------------------------------------------------"

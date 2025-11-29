@@ -17,6 +17,8 @@ Unlike standard "tutorial" setups that run Spark in `local[*]` mode, this enviro
 | **Spark Master** | `spark:3.5.3` (Official) | Resource Manager (Port 8080) |
 | **Spark Workers** | `spark:3.5.3` (Official) | Compute Nodes (2x Replicas) |
 | **Spark Client** | Custom Build (`Dockerfile.client`) | **Edge Node**. Contains Jupyter, Delta libs, and Dev tools. Built on the *exact* same OS layer as workers to guarantee Python compatibility. |
+| **MinIO** | `minio/minio` | **Object Storage**. Simulates AWS S3 (Port 9000/9001). Stores Delta tables and raw data. |
+| **MinIO Init** | `minio/mc` | **Provisioning**. Ephemeral container that waits for MinIO to start and auto-creates buckets (`test-bucket`, `delta-lake`). |
 
 ### Key Design Decisions
 1.  **Strict Version Parity:**
@@ -33,6 +35,10 @@ Unlike standard "tutorial" setups that run Spark in `local[*]` mode, this enviro
 3.  **Permission Management:**
     * Containers run as `root` user to bypass WSL2/Linux bind-mount permission conflicts.
     * The `just up` command automatically sets `chmod 777` on the `./work` directory.
+
+4.  **Object Storage Simulation (S3):**
+    * Includes a MinIO container configured with standard S3A connectors.
+    * Allows practicing "Cloud Native" patterns (dealing with eventual consistency, object listing overhead, and S3A configuration) locally, rather than relying solely on POSIX file systems.
 
 ---
 
@@ -51,6 +57,7 @@ just up
 ### 2. Verify Access
 * **Jupyter Lab:** [http://localhost:8888](http://localhost:8888) (No token required)
 * **Spark Master UI:** [http://localhost:8080](http://localhost:8080)
+* **MinIO Console:** [http://localhost:9001](http://localhost:9001) (User: `admin` / Pass: `password`)
 * **Spark Driver UI:** [http://localhost:4040](http://localhost:4040) (Only active during job execution)
 
 ### 3. Run a Job (Production Simulation)
@@ -67,10 +74,11 @@ To simulate a `spark-submit` from a CI/CD pipeline or Edge Node:
 
 | Command | Description |
 | :--- | :--- |
-| `just up` | Preps workspace, builds client image, and starts the cluster. |
-| `just down` | Stops and removes containers and networks. |
-| `just test` | Submits `./work/app.py` to the cluster with Delta packages pre-loaded to test the project setup. |
-| `just sql` | Opens the **Spark SQL CLI** with Delta support enabled. |
+| `just up` | Preps workspace, builds images, starts cluster + MinIO, and prints status dashboard. |
+| `just down` | Stops and removes containers and networks (Ephemeral MinIO data is lost). |
+| `just status` | Displays running containers and exposed service URLs. |
+| `just infra-test` | Runs a comprehensive validation suite (Local Bind Mounts + S3 Connectivity + Delta Logic). |
+| `just sql` | Opens the **Spark SQL CLI** with Delta & S3 support enabled. |
 | `just logs` | Streams logs from the Client container. |
 | `just shell` | Opens a Bash shell inside the Client container. |
 | `just nuke` | **WARNING:** Deep clean. Removes containers, volumes, and built images. |

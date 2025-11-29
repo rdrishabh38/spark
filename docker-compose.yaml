@@ -1,4 +1,40 @@
 services:
+  # -------------------------------------------------------
+  # 1. MINIO (S3 Emulation)
+  # -------------------------------------------------------
+  minio:
+    image: minio/minio
+    container_name: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=admin
+      - MINIO_ROOT_PASSWORD=password
+    # Ephemeral Storage: Data is lost on 'docker compose down'
+    command: server /data --console-address ":9001"
+
+  # -------------------------------------------------------
+  # 1.5 MINIO INIT (Automated Bucket Creation)
+  # -------------------------------------------------------
+  # This container starts, creates the bucket, and dies.
+  minio-init:
+    image: minio/mc
+    container_name: minio-init
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until (mc alias set myminio http://minio:9000 admin password); do echo '...waiting for minio...'; sleep 1; done;
+      mc mb --ignore-existing myminio/test-bucket;
+      mc mb --ignore-existing myminio/delta-lake;
+      echo '✅ Buckets created';
+      exit 0;
+      "
+
+  # -------------------------------------------------------
+  # 2. SPARK CLUSTER
+  # -------------------------------------------------------
   spark-master:
     image: spark:3.5.3-scala2.12-java17-python3-ubuntu
     container_name: spark-master
@@ -41,6 +77,9 @@ services:
     volumes:
        - ./work:/opt/spark/work-dir
 
+  # -------------------------------------------------------
+  # 3. SPARK CLIENT (Edge Node)
+  # -------------------------------------------------------
   spark-client:
     build:
       context: .
@@ -53,10 +92,11 @@ services:
       - "4040:4040"
     environment:
       - SPARK_MASTER=spark://spark-master:7077
-      # Pre-load Delta JARs
-      - PYSPARK_SUBMIT_ARGS=--packages io.delta:delta-spark_2.12:3.0.0 --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog pyspark-shell
+      # UPDATE: We added hadoop-aws and aws-java-sdk-bundle to support S3
+      - PYSPARK_SUBMIT_ARGS=--packages io.delta:delta-spark_2.12:3.0.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog pyspark-shell
     depends_on:
       - spark-master
+      - minio
     command: jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token=''
     volumes:
        - ./work:/opt/spark/work-dir
